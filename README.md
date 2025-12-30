@@ -38,5 +38,4 @@ Additional test data is available at:
 👉 [Google Drive - Test Data](https://drive.google.com/drive/folders/1339yU3sgMKAOCXzjLN2z6D33klony4-h?usp=drive_link)
 
 * Generate your own sampling patterns via `gen_mask.m`.
-
 * If there have any problem, please send an email to 2019151068@email.szu.edu.cn
