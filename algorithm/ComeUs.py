@@ -34,7 +34,6 @@ class ComeUs:
 
         self.start_time, self.target_S = time.time() - main.t_kernel - main.t_lip - main.t_sense, None
         self.ref, self.uk = sos(IFFT2_3D_N(main.ksfull)), sos(IFFT2_3D_N(self.T_ksdata))
-        self.filterXY = astf_filtZ2(self.ref, astf_loadParams())
 
     def process(self, Thr=0, ukA=0, USn=0):
         ck = Multi_TNTF(self, IFFT2_3D_N(self.T_ksdata))
