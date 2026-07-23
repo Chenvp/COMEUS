@@ -32,7 +32,6 @@ from skimage.metrics import structural_similarity as compare_ssim
 from utils.HaarPSI import HaarPSI
 from utils.DISTS.DISTS import compute_DISTS
 from utils.ESPIRiT.espirit import espirit
-from utils.shearUtils import *
 
 warnings.filterwarnings("ignore")
 torch.autograd.set_detect_anomaly(True)
@@ -196,104 +195,6 @@ def Kernel_Estimation_Real_Imag(ACS_Data, Ker_Size=(7, 7), Itr=800, ConjugateTra
         Ker_Tra_out = Ker_Tra if Ker_Tra_out is None else Ker_Tra_out + 1j * Ker_Tra
 
     return Ker_out, Ker_Tra_out
-
-def CCN_Kernel_Estimation(Full_KSpace, mask, Ker_Size=(7, 7), Low_Frequency_Lines=10):
-    h, w, c = Full_KSpace.shape
-
-    _, ACS = getCalibSize_1D_Edt(mask)
-    ACS = np.abs(ACS[1] - ACS[0]) + 1
-
-    if ACS < Low_Frequency_Lines:
-        raise ValueError("ACS area is too small!")
-
-    HalfACSL = ACS // 2
-    HalfLFLs = Low_Frequency_Lines // 2
-
-    HalfH, HalfW = h // 2, w // 2
-    startR, endR = HalfH - HalfACSL, HalfH + HalfACSL
-    startRL, endRL = HalfH - HalfLFLs, HalfH + HalfLFLs
-    startCL, endCL = HalfW - HalfLFLs, HalfW + HalfLFLs
-    Low_Frequency_Data = Full_KSpace[startRL: endRL, startCL: endCL, :]
-    Low_Mat_Data, Low_Tag_Vec = Spirit_Kernel(Ker_Size, Low_Frequency_Data)
-
-    Ker = torch.zeros((Ker_Size[0], Ker_Size[1], c, c, 2), device=Full_KSpace.device)
-    Ker_Tra = torch.zeros((Ker_Size[0], Ker_Size[1], c, c, 2), device=Full_KSpace.device)
-
-    High_Frequency_Data = Full_KSpace[startR: HalfH, : HalfW, :]
-    Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel(Ker_Size, High_Frequency_Data)
-    Mat_Data, Tag_Vec = torch.cat((Low_Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Low_Tag_Vec, Tag_Vec_Tmp), dim=0)
-    High_Frequency_Data = Full_KSpace[HalfH: endR, HalfW:, :]
-    Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel(Ker_Size, High_Frequency_Data)
-    Mat_Data, Tag_Vec = torch.cat((Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Tag_Vec, Tag_Vec_Tmp), dim=0)
-    Ker[..., 0], Ker_Tra[..., 0] = SPIRiT_Kernel_Estimation(Mat_Data, Tag_Vec, Ker_Size)
-
-    High_Frequency_Data = Full_KSpace[startR: HalfH, HalfW:, :]
-    Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel(Ker_Size, High_Frequency_Data)
-    Mat_Data, Tag_Vec = torch.cat((Low_Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Low_Tag_Vec, Tag_Vec_Tmp), dim=0)
-    High_Frequency_Data = Full_KSpace[HalfH: endR, : HalfW, :]
-    Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel(Ker_Size, High_Frequency_Data)
-    Mat_Data, Tag_Vec = torch.cat((Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Tag_Vec, Tag_Vec_Tmp), dim=0)
-    Ker[..., 1], Ker_Tra[..., 1] = SPIRiT_Kernel_Estimation(Mat_Data, Tag_Vec, Ker_Size)
-
-    return Ker, Ker_Tra
-
-def LCL_Kernel_Estimation(Full_kspace, mask, Ker_Lines=5, Low_Frequency_Lines=10):
-    h, w, c = Full_kspace.shape
-
-    _, ACS = getCalibSize_1D_Edt(mask)
-    ACS = np.abs(ACS[1] - ACS[0]) + 1
-
-    if ACS < Low_Frequency_Lines:
-        raise ValueError("ACS area is too small!")
-
-    HalfLFLs = Low_Frequency_Lines // 2
-    HalfH, HalfW = h // 2, w // 2
-    startR, endR = HalfH - HalfLFLs, HalfH + HalfLFLs
-    startC, endC = HalfW - HalfLFLs, HalfW + HalfLFLs
-    Low_Frequency_Data = Full_kspace[startR: endR, startC: endC, :]
-    Low_Mat_Data, Low_Tag_Vec = Spirit_Kernel((Ker_Lines, Ker_Lines), Low_Frequency_Data)
-
-    HalfACSL = ACS // 2
-    HalfKLLs = Ker_Lines // 2
-    maxLines = max(HalfH, HalfW)
-    KernelList = torch.zeros((maxLines - HalfACSL - HalfKLLs, Ker_Lines, Ker_Lines, c, c), dtype=torch.float32, device=mask.device)
-    KernelTraList = torch.zeros((maxLines - HalfACSL - HalfKLLs, Ker_Lines, Ker_Lines, c, c), dtype=torch.float32, device=mask.device)
-
-    for i in range(HalfACSL + 1, maxLines - HalfKLLs + 1):
-        top = max(HalfH - i - HalfKLLs, 0)
-        bottom = min(HalfH + i + HalfKLLs, h)
-        left = max(HalfW - i - HalfKLLs, 0)
-        right = min(HalfW + i + HalfKLLs, w)
-
-        Mat_Data, Tag_Vec = Low_Mat_Data, Low_Tag_Vec
-
-        if HalfH - i - HalfKLLs >= 0:
-            High_Frequency_Data = Full_kspace[top: top + Ker_Lines, left: right, :]
-            Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel((Ker_Lines, Ker_Lines), High_Frequency_Data)
-            Mat_Data, Tag_Vec = torch.cat((Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Tag_Vec, Tag_Vec_Tmp), dim=0)
-
-            High_Frequency_Data = Full_kspace[bottom - Ker_Lines: bottom, left: right, :]
-            Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel((Ker_Lines, Ker_Lines), High_Frequency_Data)
-            Mat_Data, Tag_Vec = torch.cat((Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Tag_Vec, Tag_Vec_Tmp), dim=0)
-
-        if HalfW - i - HalfKLLs >= 0:
-            High_Frequency_Data = Full_kspace[top: bottom, left: left + Ker_Lines, :]
-            Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel((Ker_Lines, Ker_Lines), High_Frequency_Data)
-            Mat_Data, Tag_Vec = torch.cat((Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Tag_Vec, Tag_Vec_Tmp), dim=0)
-
-            High_Frequency_Data = Full_kspace[top: bottom, right - Ker_Lines: right, :]
-            Mat_Data_Tmp, Tag_Vec_Tmp = Spirit_Kernel((Ker_Lines, Ker_Lines), High_Frequency_Data)
-            Mat_Data, Tag_Vec = torch.cat((Mat_Data, Mat_Data_Tmp), dim=0), torch.cat((Tag_Vec, Tag_Vec_Tmp), dim=0)
-
-
-        start = time.time()
-        Ker, Ker_Tra = SPIRiT_Kernel_Estimation(Mat_Data, Tag_Vec, (Ker_Lines, Ker_Lines))
-        print(f"use-{time.time() - start}")
-        KernelList[i - HalfACSL - 1, ...] = Ker
-        KernelTraList[i - HalfACSL - 1, ...] = Ker_Tra
-
-
-    return KernelList, KernelTraList
 
 def Kernel_Estimation(Full_kspace, ACS_Line, Ker_Size=(7, 7)):
     center = Full_kspace.shape[0] // 2
@@ -575,55 +476,6 @@ def double2uint8(im, save_path):
     ref_uint8 = ref_uint8 / np.max(ref_uint8)
     ref_uint8 = img_as_ubyte(ref_uint8)
     return ref_uint8
-
-def shearHaarDec(img, filterXY):
-    ConstHaar = 5
-    ConstShear = 13
-    StoreLev = ConstHaar + ConstShear - 1
-    H, W = img.shape
-    TFcoef = torch.zeros(H, W, StoreLev, dtype=img.dtype, device=img.device)
-
-    FOut = astf_dec2(img, filterXY)
-
-    TFcoef[..., ConstHaar:ConstHaar + 12] = torch.cat([
-        torch.stack(FOut['coefs'][0][0], dim=-1),
-        torch.stack(FOut['coefs'][0][1], dim=-1)
-    ], dim=-1)
-
-    TFcoef[..., : ConstHaar] = DCT7Dec2(FOut['coefs'][1])
-
-    return TFcoef
-
-def multiShearHaarDec(multiCoilImg, filterXY):
-    ConstHaar = 5
-    ConstShear = 13
-    StoreLev = ConstHaar + ConstShear - 1
-    H, W, C = multiCoilImg.shape
-    multi_coil_TFcoef = torch.zeros(H, W, C, StoreLev, dtype=multiCoilImg.dtype, device=multiCoilImg.device)
-    for i in range(C):
-        multi_coil_TFcoef[:, :, i, :] = shearHaarDec(multiCoilImg[:, :, i], filterXY)
-
-    return multi_coil_TFcoef
-
-def shearHaarRec(TFcoef, filterXY, filterHaar):
-    ConstHaar = 5
-
-    LowPass = DCT7Rec2(TFcoef[..., :ConstHaar], filterHaar)
-    FOut = {'coefs': [None, None]}
-    FOut['coefs'][1] = LowPass
-    HighPass1 = [TFcoef[:, :, ConstHaar + i] for i in range(6)]
-    HighPass2 = [TFcoef[:, :, ConstHaar + i + 6] for i in range(6)]
-
-    FOut['coefs'][0] = [HighPass1, HighPass2]
-
-    return astf_rec2(FOut, filterXY)
-
-def multiShearHaarRec(multiCoilImg, filterXY, filterHaar):
-    H, W, C, _ = multiCoilImg.shape
-    multi_coil = torch.zeros(H, W, C, dtype=multiCoilImg.dtype, device=multiCoilImg.device)
-    for i in range(C):
-        multi_coil[:, :, i] = shearHaarRec(multiCoilImg[:, :, i, :], filterXY, filterHaar)
-    return multi_coil
 
 def DCT7Dec2(img, lev=1):
     img = img / 4
@@ -1316,49 +1168,6 @@ def Multi_TNTF_T(COM, input):
     for i in range(C):
         multi_coil[:, :, i] = ImgDoubleFrameRec2_DCT7(input[:, :, i, :], COM)
     return multi_coil
-
-def getH(x):
-    h, w, c = x.shape
-    res = torch.zeros(h, w, c, c, dtype=x.dtype, device=x.device)
-    for i in range(c):
-        tmp = torch.zeros_like(x)
-        for j in range(c):
-            if j != i:
-                tmp[..., i] += x[..., j]
-                tmp[..., j] = -x[..., i]
-        res[..., i] = tmp
-    return res
-
-def getHT(x):
-    c = x.shape[-1]
-    res = torch.zeros_like(x)
-    for i in range(c):
-        for j in range(c):
-            res[..., i, j] = torch.conj(x[..., j, i])
-    return res
-
-def SSK(Kernel, coilImage):
-    ks_Rec = torch.zeros_like(coilImage)
-    for coi in range(coilImage.size(2)):
-        ks_Rec[..., coi] = torch.sum(coilImage * Kernel[..., coi], dim=-1)
-    return ks_Rec
-
-def getHTH(H):
-    h, w, c,_ = H.shape
-    res = torch.zeros(h, w, c, c, dtype=H.dtype, device=H.device)
-    for i in range(c):
-        for j in range(c):
-            tmp = torch.zeros(h, w, dtype=H.dtype, device=H.device)
-            for k in range(c):
-                tmp += torch.conj(H[..., i, k]) * H[..., j, k]
-            res[..., j, i] = tmp
-    return res
-
-def HTHx(x, HTH):
-    res = torch.zeros_like(x)
-    for i in range(x.shape[-1]):
-        res[..., i] = torch.sum(HTH[..., i] * x, dim=-1)
-    return res
 
 def calculate_and_plot_errors(save_path):
     # 获取所有以"2-"开头的PNG文件
